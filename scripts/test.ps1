@@ -175,6 +175,41 @@ foreach ($path in @('CLAUDE.md', (Join-Path 'rules' 'git.md'))) {
 }
 Test-Check 'complete: on without a coder, the files without the setting (#122 R2)' $same
 
+# #185 R4, R5: starting verified specifications is off by default, saved by its option, kept
+# by a later run without it, and turned off by its no option; it installs review-spec only
+# when on, with an analyst and a coder.
+$verified = Join-Path $tmp 'verified'
+$steps = @(
+    @{ Name = 'off by default'; Arguments = @(); Expected = 'start_verified_specs=no' },
+    @{ Name = 'turned on and saved by -StartVerifiedSpecs'; Arguments = @('-StartVerifiedSpecs'); Expected = 'start_verified_specs=yes' },
+    @{ Name = 'kept by a later run without the option'; Arguments = @(); Expected = 'start_verified_specs=yes' },
+    @{ Name = 'turned off by -NoStartVerifiedSpecs'; Arguments = @('-NoStartVerifiedSpecs'); Expected = 'start_verified_specs=no' }
+)
+foreach ($step in $steps) {
+    $run = Invoke-Installer $verified 'main' 'C' (@('-Copy', '-Assistant', 'Kira <kira@example.com>', '-Analyst', '-Coder', 'Cleo <cleo@example.com>') + $step.Arguments)
+    Test-Check "verified: $($step.Name) (#185 R4)" ($run.Status -eq 0 -and (Test-ProfileLine $verified $step.Expected)) `
+        (($run.Lines | ForEach-Object { "$_" }) -join "`n")
+    $reviewSpec = Test-Path -LiteralPath (Join-Path (Join-Path (Join-Path $verified 'skills') 'review-spec') 'SKILL.md')
+    if ($step.Expected -eq 'start_verified_specs=yes') {
+        Test-Check "verified: $($step.Name), review-spec installed (#185 R4, R10)" $reviewSpec
+    } else {
+        Test-Check "verified: $($step.Name), no review-spec (#185 R5)" (-not $reviewSpec)
+    }
+}
+
+# #185 R4: with the setting on and no coder, the installed files are those without it.
+$verifiedOn = Join-Path $tmp 'verified-nocoder-on'
+$verifiedOff = Join-Path $tmp 'verified-nocoder-off'
+$runOn = Invoke-Installer $verifiedOn 'main' 'C' @('-Copy', '-Assistant', 'Kira <kira@example.com>', '-Analyst', '-StartVerifiedSpecs')
+$runOff = Invoke-Installer $verifiedOff 'main' 'C' @('-Copy', '-Assistant', 'Kira <kira@example.com>', '-Analyst')
+$same = $runOn.Status -eq 0 -and $runOff.Status -eq 0
+foreach ($path in @('CLAUDE.md', (Join-Path 'rules' 'team.md'), (Join-Path (Join-Path 'skills' 'spec') 'SKILL.md'))) {
+    $on = Get-Content -Raw -LiteralPath (Join-Path $verifiedOn $path)
+    $off = Get-Content -Raw -LiteralPath (Join-Path $verifiedOff $path)
+    if ($on -cne $off) { $same = $false }
+}
+Test-Check 'verified: on without a coder, the files without the setting (#185 R4)' $same
+
 # #120: a command per team member, the same as scripts/build.sh builds it.
 function Get-RunText($Run) { return (($Run.Lines | ForEach-Object { "$_" }) -join "`n") }
 function Get-MemberCommand([string]$Member, [string]$Title, [string]$Model) {

@@ -84,7 +84,8 @@ a pull request template, Copilot instructions, and a workflow that checks pull r
 
 `get-kira.ps1` takes the same options in PowerShell form (`-DryRun`, `-Name`, `-CoAuthor`,
 `-Coder`, `-CoderSigningKey`, `-CoderGithub`, `-AllowReleases`, `-NoAllowReleases`,
-`-CompleteApprovedPrs`, `-NoCompleteApprovedPrs`, …; see
+`-CompleteApprovedPrs`, `-NoCompleteApprovedPrs`, `-StartVerifiedSpecs`,
+`-NoStartVerifiedSpecs`, …; see
 `Get-Help .\get-kira.ps1 -Detailed`).
 
 | Option | Effect |
@@ -108,6 +109,8 @@ a pull request template, Copilot instructions, and a workflow that checks pull r
 | `--no-allow-releases` | Releases and tags stay behind a prompt (default; saved in the profile) |
 | `--complete-approved-prs` | With a coder, let the assistant merge the coder's pull requests it approved without your review (saved in the profile) |
 | `--no-complete-approved-prs` | Every pull request waits for your review (default; saved in the profile) |
+| `--start-verified-specs` | With an analyst and a coder, let the assistant verify the analyst's specifications and move the verified ones to Ready without you; you are asked only security questions (saved in the profile) |
+| `--no-start-verified-specs` | Every specification waits in Specified for you (default; saved in the profile) |
 | `--default-style PERSONA` | Style selected in `settings.json` (default: `kira-cozy`) |
 | `--assistant-style PERSONA` | Style of the `assistant` launcher (default: the default style) |
 | `--bin-dir DIR` | Where the launchers go, an absolute path (default: `~/.local/bin`, or `bin/` in a non-default configuration directory; saved in the profile) |
@@ -151,7 +154,11 @@ The coder's values are saved as `coder`, `coder_signing_key` and `coder_github`.
 and kept until `--no-allow-releases`. `--complete-approved-prs` is not asked either: it is
 saved as `complete_approved_prs` (`yes` or `no`, default `no`) and kept until
 `--no-complete-approved-prs`. It applies only with a coder, and a profile saved before it
-reads as `no`.
+reads as `no`. `--start-verified-specs` is not asked either: it is saved as
+`start_verified_specs` (`yes` or `no`, default `no`) and kept until
+`--no-start-verified-specs`. It applies only with both an analyst and a coder (otherwise the
+installed files are those of an install without it), and a profile saved before it reads as
+`no`.
 
 The answers are saved in `$CLAUDE_CONFIG_DIR/.kirakit-profile` and reused by later runs; only
 questions that are not answered yet are asked. Options override the saved values, and
@@ -581,11 +588,60 @@ installed only with an analyst or a coder.
 - **You start a specification, then development runs on its own.** When Iris finishes a
   specification with no questions for you, Kira says in one line that it is in Specified.
   Move it to Ready on the board, or tell Kira it can start: Kira then works through its
-  tasks without asking (see [Development](#development-from-a-ready-specification)).
+  tasks without asking (see [Development](#development-from-a-ready-specification)). With
+  `--start-verified-specs`, Kira verifies it and starts it herself (below).
 - **Long outputs stay out of the conversation too.** CI logs, full test runs and broad
   searches run in a background agent that returns only its conclusion.
 - On GitHub, Iris's work is still written as her account (see
   [Give the analyst a GitHub account](#give-the-analyst-a-github-account)).
+
+#### Verified specifications
+
+With `--start-verified-specs` (off by default, saved in the profile as
+`start_verified_specs`; it applies only with both an analyst and a coder), a specification
+no longer waits for you when it holds nothing for you to decide:
+
+- **Iris settles every question that is not a security question**, the logical option
+  each time, hard-to-reverse choices (public interface, data format, file layout you depend
+  on) and scope included, and records each one under Decisions with its reason. For scope
+  beyond the idea, she takes the narrower option and records the extension under Open
+  questions as a possible follow-up. Her summary comment lists the decisions taken without
+  you, the hard-to-reverse ones first, does not mention you, and ends with "Sent to Kira for
+  verification."
+- **Security questions always go to you.** A security question is an open choice about
+  credentials, tokens or signing keys; permission rules or `allowed-tools`; Git identity or
+  signing; network downloads or remote scripts that are executed; files written or deleted
+  outside the project; CI workflows; accounts and their access rights; or data exposed
+  outside your machine or to other people. Iris asks you each one, with her
+  recommendation, in a comment of its own that mentions you, and the specification waits
+  in Specified for your answer. A question flagged by Iris or by Kira is never settled by the
+  other. A change to such a file that follows from your decisions or the existing rules is
+  not an open choice: the pull request review flags it for you.
+- **Kira verifies the specification** in the background, in the `kira` agent, shown as
+  Kira with a status such as "Verifying spec #42", following the read-only `review-spec`
+  skill. It checks that each requirement is a single testable statement, that every
+  requirement is covered by a task, that the tasks follow the splitting rules, that every
+  decision states its reason, that the specification matches the code and files it names,
+  and that no decision taken without you settles a security question. It returns one
+  verdict, which Kira posts on the specification as her own account and tells you in one
+  line:
+  - `verified`: Kira moves the specification to Ready (or adds `status:ready` on a
+    repository with no board) and development starts as if you had moved it;
+  - `changes requested`: back to Iris, who changes the specification, then a new
+    verification. After two verifications in a row requesting changes, Kira asks you
+    instead, listing the comments still unresolved, and the specification stays in
+    Specified;
+  - `needs the user`: a security question was settled without you or left open. Kira asks
+    you in a comment of its own that mentions you; once Iris has recorded your answer, the
+    specification is verified again.
+- **You object on the issue, or on the board.** The decisions and the verdict are on the
+  issue, without mentioning you. Comment on a specification in Ready or In progress to
+  object: no new task of it starts while your comment has no answer from a member after
+  it, and Kira hands it to Iris, who answers or changes the specification. This needs the
+  members' own GitHub accounts, so that their comments can be told from yours. Moving the
+  specification out of Ready and In progress still stops it, and pull requests, tags and
+  releases keep their own rules (`--complete-approved-prs` decides whether you review a
+  pull request).
 
 With a coder, code goes through Cleo the same way:
 
@@ -724,7 +780,8 @@ The launchers are not supported on Windows: `get-kira.ps1` prints a notice and i
 
 `claude/skills/` holds Claude Code skills, one directory per skill with its `SKILL.md`:
 `assistant-commit`, `board-status`, `commit`, `diffv`, `idea`, `next-task`, `pull`,
-`pull-request`, `push`, `spec` and `test`. They answer
+`pull-request`, `push`, `review-pr` (with a coder), `review-spec` (with
+`--start-verified-specs`), `spec` and `test`. They answer
 in the profile's language; `commit` and `assistant-commit` follow the git rules in
 `claude/rules/git.md` (see [Who commits](#who-commits)). Other skills already in
 `$CLAUDE_CONFIG_DIR/skills/` are left untouched. Agents in `claude/agents/` are installed the
@@ -743,7 +800,7 @@ when a member invokes it herself, it runs on her model.
 | --- | --- | --- | --- |
 | `iris` (agent) | Clarifies ideas, writes specifications and their tasks | opus | agent |
 | `cleo` (agent) | Implements tasks and opens pull requests | sonnet | agent |
-| `kira` (agent) | Reviews a pull request of the coder for the lead, in the background | opus | agent |
+| `kira` (agent) | Reviews a pull request of the coder for the lead, in the background, and verifies a specification with `--start-verified-specs` | opus | agent |
 | `next-task` | Finds the next workable task on the board | sonnet | forked |
 | `board-status` | Moves a task, a specification or a pull request on its boards | haiku | forked |
 | `test` | Runs the unit tests and shows a results table | haiku | forked |
@@ -756,6 +813,7 @@ when a member invokes it herself, it runs on her model.
 | `spec` | Turns an idea into a specification and its tasks | opus | inline |
 | `pull-request` | Writes and opens the pull request of a task | sonnet | inline |
 | `review-pr` | Reviews a pull request of the coder and returns a verdict | opus | forked |
+| `review-spec` | Verifies a specification of the analyst and returns a verdict (with `--start-verified-specs`) | opus | forked |
 | `iris` (skill) | Lets you talk to Iris directly (`/iris`) | opus | forked |
 | `cleo` (skill) | Lets you talk to Cleo directly (`/cleo`) | sonnet | forked |
 
@@ -764,8 +822,8 @@ your Claude Code settings: kirakit does not pin it. `board-status` takes the acc
 writes as an argument (`--as LOGIN`), since a forked skill cannot tell who called it. The lead
 gives its background agents a model suited to the step (`haiku` to read CI logs or run the
 tests, `sonnet` to search across many files), and none when it starts `iris` or `kira`, so
-that their own model applies. It starts `cleo` with no model, so that her Sonnet applies, except for
-the tasks that run on Opus (see the team section).
+that their own model applies. It starts `cleo` with no model, so that her Sonnet applies,
+except for the tasks that run on Opus (see the team section).
 
 ## Specifications
 
@@ -787,7 +845,9 @@ A feature goes through one GitHub issue, from idea to specification:
    confirmation and moved to Specified on its board, with a summary comment listing the
    tasks, the decisions made alone and the development order; with no questions for the
    user, it asks nothing. The user reverses a decision by replying on the issue, and starts
-   the work by moving the specification to Ready. A specification has 1 to 3 tasks by
+   the work by moving the specification to Ready; with `--start-verified-specs`, Kira moves
+   it there once she has verified it (see [Verified specifications](#verified-specifications)).
+   A specification has 1 to 3 tasks by
    default, each able to land on its own, with its tests and documentation; more are split
    off only for review size or a stage to try out, with the reason under Decisions.
 
@@ -821,7 +881,7 @@ The workflow uses a board with these `Status` options, in this order:
 | Status | What it holds |
 | --- | --- |
 | Backlog | Ideas, and the tasks of every specification |
-| Specified | Specifications that are complete and wait for you |
+| Specified | Specifications that are complete and wait for you, or, with `--start-verified-specs`, for Kira's verification |
 | Ready | Specifications you want the team to work on |
 | In progress | Specifications and tasks being worked on |
 | In review | Tasks and pull requests waiting for your review |

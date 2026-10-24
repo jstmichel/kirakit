@@ -172,12 +172,37 @@ Before writing any requirement, compare the idea with the code: what already exi
 is missing (`path:line`). Then take the idea's open questions and the ones the analysis
 raised, and sort each one:
 
+{{^start_verified_specs}}
 - **Settle it** when it has a good answer: the code, an existing convention, the text of
   the idea or an earlier decision settles it, or its options are easy to change later.
   Record the choice and its reason under Decisions.
 - **Ask the user** only when its options trade off things the user values (scope, cost,
   experience), when the choice is hard to reverse (public interface, data, accounts,
   permissions, security, release), or when it goes beyond the idea.
+{{/start_verified_specs}}
+{{#start_verified_specs}}
+- **Settle it** when it is not a security question: take the logical option, the one the
+  code, an existing convention, the text of the idea or an earlier decision points to.
+  Hard-to-reverse choices (public interface, data format, file layout users depend on) and
+  scope are settled too. Record each choice and its reason under Decisions. For scope
+  beyond the idea, take the narrower option, and record the extension under Open questions
+  as a possible follow-up.
+- **Ask the user** every security question, and only those. A security question is an
+  open choice about:
+  - credentials, tokens or signing keys;
+  - permission rules or `allowed-tools`;
+  - Git identity or signing;
+  - network downloads or remote scripts that are executed;
+  - files written or deleted outside the project;
+  - CI workflows;
+  - accounts and their access rights;
+  - data exposed outside the user's machine or to other people.
+
+  Never settle a security question yourself, even with a clear recommendation: give it
+  with its options and your recommendation. A change to such a file that follows from the
+  user's decisions or the existing rules is not an open choice, and goes on. A question
+  the lead flags as a security question in a verification always goes to the user too.
+{{/start_verified_specs}}
 
 Ask those questions all at once, in a single comment of their own on the issue (`gh issue
 comment <n> --body-file <file>`) that mentions the user (`@<login>`, from `gh config get user
@@ -250,6 +275,9 @@ confirmation:
   "<title>" --body-file <file> --label type:task`. An existing issue becomes a sub-issue
   with `gh issue edit <parent> --add-sub-issue <n>`, and gets the same label. Tasks stay in
   Backlog, without `status:ready`: the user starts a specification by moving it to Ready,
+{{#start_verified_specs}}
+  or the lead does once she has verified it,
+{{/start_verified_specs}}
   and then all its tasks can be worked on.
 {{#coder}}
 - Hard tasks run on the coder with Opus, the others on Sonnet. A task is hard when it
@@ -284,6 +312,7 @@ confirmation:
 {{/assistant_github}}
 {{/analyst_github}}
 
+{{^start_verified_specs}}
 Once the tasks are published, post a summary comment on the parent: the tasks (number,
 title, requirements covered), the decisions made alone (number and one line each) and the
 development order. Then:
@@ -291,6 +320,17 @@ development order. Then:
 - With no questions for the user, post it without mentioning the user and ask nothing:
   moving it to Ready is the user's choice of timing, and the board already shows it in
   Specified. End with "Ready for you: move it to Ready when you want the team to start."
+{{/start_verified_specs}}
+{{#start_verified_specs}}
+Once the tasks are published, post a summary comment on the parent: the tasks (number,
+title, requirements covered), the decisions taken without the user (number and one line
+each), the hard-to-reverse ones first (public interface, data format, file layout users
+depend on, scope) under their own heading, and the development order. Then:
+
+- With no questions for the user, post it without mentioning the user and ask nothing: the
+  specification goes to the lead, who verifies it and moves it to Ready when it is
+  verified. End with "Sent to Kira for verification."
+{{/start_verified_specs}}
 - With questions for the user, post the summary comment above without mentioning the user,
   then the questions in a second comment of their own that mentions the user (`@<login>`),
   lists them with their options and your recommendation, and ends with a short question,
@@ -313,3 +353,12 @@ confirmation:
   the existing tasks of a published specification, unless the user asks for it.
 - Assignees are left as they are: changing a specification, moving it on the board or
   closing it adds or removes none.
+{{#start_verified_specs}}
+- When the lead hands back a verification's comments, address each one in the
+  specification, settle or ask under step 2, and post a comment on the parent, without
+  mentioning the user, that lists what changed for each comment. With no question left for
+  the user, end it with "Sent to Kira for verification."; with one, ask it as in step 2.
+- When the lead hands over a comment the user posted on a specification in Ready or In
+  progress, answer it on the issue, or change the specification as it asks, so that the
+  user's comment no longer comes last.
+{{/start_verified_specs}}

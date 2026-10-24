@@ -4,7 +4,12 @@ description: Finds the developer's next workable task from the project board, fo
 model: sonnet
 context: fork
 argument-hint: "[--as ACCOUNT]"
+{{^start_verified_specs}}
 allowed-tools: Bash(gh repo view:*), Bash(gh project list:*), Bash(gh project item-list:*), Bash(gh issue view:*), Bash(gh issue list:*), Bash(gh pr list:*), Bash(gh pr view:*)
+{{/start_verified_specs}}
+{{#start_verified_specs}}
+allowed-tools: Bash(gh repo view:*), Bash(gh project list:*), Bash(gh project item-list:*), Bash(gh issue view:*), Bash(gh issue list:*), Bash(gh pr list:*), Bash(gh pr view:*), Bash(gh config get user -h github.com)
+{{/start_verified_specs}}
 ---
 
 # Next task
@@ -42,6 +47,39 @@ A task is workable only while its specification is in **Ready** or **In progress
   whose labels include `type:feature`, in that order.
 - No board: the open issues with both `type:feature` and `status:ready`
   (`gh issue list --label type:feature --label status:ready --state open`), oldest first.
+{{#start_verified_specs}}
+
+Then skip a specification that waits for a comment of the user: one whose comments
+(`gh issue view <n> --json comments`) hold a comment of the user with no comment of a team
+member after it. The user objects that way to a specification the lead moved to Ready; the
+lead hands the comment to the analyst, whose answer ends the pause.
+{{#team_github}}
+
+- The user's login comes from `gh config get user -h github.com`, which calls no API: run it
+  without the `GH_TOKEN` prefix.
+- The team's accounts:
+{{#assistant_github}}
+  `{{assistant_github}}` (the lead),
+{{/assistant_github}}
+{{#analyst_github}}
+  `{{analyst_github}}` (the analyst),
+{{/analyst_github}}
+{{#coder_github}}
+  `{{coder_github}}` (the coder),
+{{/coder_github}}
+  as the session marker rule of `rules/git.md` names them.
+- A team member's comment is a comment of a team account that ends with a session marker
+  (`<!-- kirakit:` followed by the member's role).
+- The user's comment is a comment of the user's login, or a comment of a team account
+  without a session marker posted after the latest comment that carries one. A comment of
+  any other account is neither: ignore it.
+{{/team_github}}
+{{^team_github}}
+
+No member has a GitHub account of her own: the members comment as the user's account, and
+their comments cannot be told from his. No specification is skipped this way.
+{{/team_github}}
+{{/start_verified_specs}}
 
 ## 2. Their tasks, in order
 
@@ -72,3 +110,7 @@ same skips.
 - A task: "Next task: #<n> <title> (specification #<parent>)."
 - None: "Nothing workable.", then one line per task skipped with its reason, for example
   "#91: blocked by #93."
+{{#start_verified_specs}}
+- In both cases, one line per specification skipped because it waits for a comment of the
+  user, for example "Specification #90: paused by a comment of the user (<comment URL>)."
+{{/start_verified_specs}}

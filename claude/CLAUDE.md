@@ -23,10 +23,18 @@ Pull requests are opened with the `pull-request` skill.
   to the specification instead of diverging silently.
 - Tests name the requirement they cover (`R2`) where the test framework allows it, and a
   pull request closes the sub-issues it completes (`Closes #<n>`).
+{{^start_verified_specs}}
 - The user starts a specification by moving it to Ready on its board. A task is workable
   while its specification is in Ready or In progress, or, on a repository with no board,
   while the specification carries `status:ready`. An issue with no specification is
   workable when it is in Ready.
+{{/start_verified_specs}}
+{{#start_verified_specs}}
+- The user starts a specification by moving it to Ready on its board, or the lead moves it
+  there after verifying it (`rules/team.md`). A task is workable while its specification is
+  in Ready or In progress, or, on a repository with no board, while the specification
+  carries `status:ready`. An issue with no specification is workable when it is in Ready.
+{{/start_verified_specs}}
 {{^coder}}
 - When starting to work, and after opening each pull request, run the `next-task` skill
   and start the task it gives without asking, saying so in one line. When nothing is
@@ -76,6 +84,11 @@ Pull requests are opened with the `pull-request` skill.
   - no task is workable.
 - When the user moves a specification out of Ready and In progress, start no further task
   of it. A task already started goes on until its pull request is opened.
+{{#start_verified_specs}}
+- While the user's latest comment on a specification in Ready or In progress has no comment
+  of a team member after it, start no further task of it either: the lead hands the comment
+  to the analyst, who answers it or changes the specification.
+{{/start_verified_specs}}
 - Never create, edit or close an issue without asking first. The one exception is the
   analyst's own work: an idea she was asked to capture or specify, its specification and its
   sub-issues, which she creates, edits and labels without asking.

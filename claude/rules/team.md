@@ -33,8 +33,65 @@ apply in the assistant's session; the coder follows her own persona.
 - When the analyst finishes, the assistant reports it in a few lines: the issue's URL, the
   sub-issues created (number and title), and her questions for the user with her
   recommendations. Her intermediate output stays out of the conversation.
+{{^start_verified_specs}}
 - When the analyst finishes a specification with no questions for the user, the assistant
   says in one line that it is in Specified, ready for the user to start. Nothing is asked.
+{{/start_verified_specs}}
+{{#start_verified_specs}}
+- When the analyst finishes a specification with no questions for the user, the assistant
+  verifies it with the `kira` agent, run in the background: the Agent tool with
+  `subagent_type: kira`, a `description` that starts with `Verifying` and names the
+  specification (`Verifying spec #<n>`), no `model`, so that the agent's Opus applies, and a
+  prompt holding the specification's issue URL (`https://github.com/OWNER/REPO/issues/<n>`)
+  followed by the user's direction for the feature as notes, with the comments of the
+  previous verification on a later round. The agent follows the `review-spec` procedure,
+  posts nothing and returns only its result. While it runs, the assistant says in one line
+  that the verification started and keeps answering the user. A specification that still
+  holds a question for the user is not verified: it waits in Specified for his answer,
+  which the analyst records, and then the verification runs.
+- A security question is an open choice about credentials, tokens or signing keys;
+  permission rules or `allowed-tools`; Git identity or signing; network downloads or remote
+  scripts that are executed; files written or deleted outside the project; CI workflows;
+  accounts and their access rights; or data exposed outside the user's machine or to other
+  people. Only the user settles one: a question the analyst or the assistant flags as a
+  security question always goes to the user, and neither one settles a question the other
+  flagged.
+- When the verification returns, the assistant posts its verdict on the specification as
+  its own account (`gh issue comment <n> --body-file <file>`), in its own voice, with the
+  result's comments. The comment's first line names the verdict: `Verification: verified`,
+  `Verification: changes requested` or `Verification: needs the user`. It says the verdict
+  in one line in the conversation. The verdict comment does not mention the user. Then, by
+  the verdict:
+  - `verified`: the assistant moves the specification to Ready with the `board-status`
+    skill
+{{#assistant_github}}
+    (`board-status <n> Ready --as {{assistant_github}}`),
+{{/assistant_github}}
+{{^assistant_github}}
+    (`board-status <n> Ready`),
+{{/assistant_github}}
+    or, on a repository with no board, adds `status:ready` to it
+    (`gh issue edit <n> --add-label status:ready`), then runs `next-task` and hands the task
+    it gives to the coder, as for a specification the user moved to Ready;
+  - `changes requested`: the assistant hands the specification back to the analyst with
+    the result's comments; once she has changed it, it verifies it again. When the
+    previous verification comment, posted since the user's latest answer on the
+    specification, also says `changes requested`, the assistant asks the user instead: in a
+    comment of its own, posted after the verdict, that mentions him, lists the comments
+    still unresolved and ends with a short question, and in the conversation too. The
+    specification stays in Specified;
+  - `needs the user`: the assistant asks the user the result's "For the user" questions in
+    a comment of its own, posted after the verdict, that mentions him, holds only each
+    question with its options and recommendation, and ends with a short question, and asks
+    them in the conversation too. The specification stays in Specified. Once the analyst
+    has recorded his answers, the assistant verifies it again, and the count of verdicts
+    requesting changes starts over.
+- When `next-task` reports a specification paused by a comment of the user, the assistant
+  hands that comment to the analyst, who answers it or changes the specification.
+- The user still stops a specification by moving it out of Ready and In progress. The
+  pull requests of a verified specification, its tags and its releases keep their own
+  rules.
+{{/start_verified_specs}}
 - When the user says in the conversation that a specification can start, the assistant
 {{#assistant_github}}
   moves it to Ready with the `board-status` skill

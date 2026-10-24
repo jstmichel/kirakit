@@ -119,6 +119,16 @@ jobs:
             -CoderSigningKey /keys/cleo.pub -CoderGithub cleo-bot
           grep -qx 'coder=Cleo <cleo@example.com>' "$RUNNER_TEMP/ps-coder/.kirakit-profile"
           grep -qx 'coder_github=cleo-bot' "$RUNNER_TEMP/ps-coder/.kirakit-profile"
+          # The whole team with verified specifications started by the lead (#185 R4, R18).
+          CLAUDE_CONFIG_DIR="$RUNNER_TEMP/sh-verified" sh get-kira.sh --copy --name Alex --gender female \
+            --language auto --assistant 'Kira <kira@example.com>' --assistant-github kira-bot \
+            --analyst-github iris-bot --coder 'Cleo <cleo@example.com>' --coder-github cleo-bot \
+            --start-verified-specs
+          CLAUDE_CONFIG_DIR="$RUNNER_TEMP/ps-verified" pwsh -File get-kira.ps1 -Copy -Name Alex -Gender female \
+            -Language auto -Assistant 'Kira <kira@example.com>' -AssistantGithub kira-bot \
+            -AnalystGithub iris-bot -Coder 'Cleo <cleo@example.com>' -CoderGithub cleo-bot \
+            -StartVerifiedSpecs
+          grep -qx 'start_verified_specs=yes' "$RUNNER_TEMP/ps-verified/.kirakit-profile"
           # The coder's keys are reloaded on the next run, and asked for no more.
           rerun=$(CLAUDE_CONFIG_DIR="$RUNNER_TEMP/ps-coder" pwsh -File get-kira.ps1 -Copy </dev/null)
           printf '%s\n' "$rerun" | grep -F 'coder Cleo <cleo@example.com>'
@@ -151,7 +161,8 @@ jobs:
             grep -F '(v0.10.0)'
       - name: Compare
         run: |
-          for pair in sh:ps sh-assistant:ps-assistant sh-analyst:ps-analyst sh-generic:ps-generic sh-coder:ps-coder; do
+          for pair in sh:ps sh-assistant:ps-assistant sh-analyst:ps-analyst sh-generic:ps-generic sh-coder:ps-coder \
+            sh-verified:ps-verified; do
             a=$RUNNER_TEMP/${pair%%:*} b=$RUNNER_TEMP/${pair##*:}
             for path in output-styles skills rules CLAUDE.md settings.json; do
               diff -r "$a/$path" "$b/$path"
@@ -175,6 +186,12 @@ jobs:
           test ! -e "$RUNNER_TEMP/ps-analyst/agents/cleo.md"
           # The lead's review agent, only with a coder, by both installers (#183 R8).
           grep -qx 'model: opus' "$RUNNER_TEMP/ps-coder/agents/kira.md"
+          # The read-only verification, only with the setting on, by both installers (#185 R4, R10).
+          grep -qx 'skills: review-pr, review-spec' "$RUNNER_TEMP/ps-verified/agents/kira.md"
+          grep -qx 'allowed-tools: Bash(gh issue view:\*)' "$RUNNER_TEMP/ps-verified/skills/review-spec/SKILL.md"
+          for dir in sh ps sh-assistant ps-assistant sh-analyst ps-analyst sh-generic ps-generic sh-coder ps-coder; do
+            test ! -e "$RUNNER_TEMP/$dir/skills/review-spec"
+          done
           for dir in sh ps sh-assistant ps-assistant sh-analyst ps-analyst sh-generic ps-generic; do
             test ! -e "$RUNNER_TEMP/$dir/agents/kira.md"
           done

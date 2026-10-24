@@ -1069,7 +1069,7 @@ check 'marker: README says approvals count only from your account (#38 R7)' sh -
 # that a new agent or skill fails until it is listed here and in the README.
 expected_model() {
 	case $1 in
-	iris | kira | idea | spec | review-pr) echo opus ;;
+	iris | kira | idea | spec | review-pr | review-spec) echo opus ;;
 	cleo | next-task | diffv | pull-request) echo sonnet ;;
 	board-status | test | pull | push | commit | assistant-commit) echo haiku ;;
 	esac
@@ -1077,7 +1077,7 @@ expected_model() {
 # forked NAME: whether the skill runs in a forked context.
 forked() {
 	case $1 in
-	next-task | board-status | test | pull | push | diffv | review-pr | iris | cleo) return 0 ;;
+	next-task | board-status | test | pull | push | diffv | review-pr | review-spec | iris | cleo) return 0 ;;
 	*) return 1 ;;
 	esac
 }
@@ -1715,6 +1715,231 @@ check 'complete: README describes the conditions (R11)' contains "$root/README.m
 check 'complete: README describes the fallback (R11)' contains "$root/README.md" 'it. When any condition fails, it falls back to the usual flow: it requests your review,'
 check 'complete: README describes the notification (R11)' contains "$root/README.md" 'the assistant posts a comment there that mentions you and lists every pull request of it'
 
+# --- verified specifications (#185 R4 to R18) ----------------------------------------------
+
+printf '%s\n' '{{#start_verified_specs}}' 'verified {{start_verified_specs}}' '{{/start_verified_specs}}' \
+	'{{^start_verified_specs}}' 'wait' '{{/start_verified_specs}}' >"$blocks/claude/skills/blocks/SKILL.md"
+build_blocks "$tmp/blocks-verified" --analyst --coder 'Cleo <cleo@example.com>' --start-verified-specs
+check 'verified build: placeholder and block with an analyst and a coder (R4)' \
+	same_lines "$tmp/blocks-verified/skills/blocks/SKILL.md" 'verified yes'
+build_blocks "$tmp/blocks-verified-noanalyst" --coder 'Cleo <cleo@example.com>' --start-verified-specs
+check 'verified build: dropped without an analyst (R4)' \
+	same_lines "$tmp/blocks-verified-noanalyst/skills/blocks/SKILL.md" 'wait'
+build_blocks "$tmp/blocks-verified-nocoder" --analyst --start-verified-specs
+check 'verified build: dropped without a coder (R4)' \
+	same_lines "$tmp/blocks-verified-nocoder/skills/blocks/SKILL.md" 'wait'
+build_blocks "$tmp/blocks-verified-off" --analyst --coder 'Cleo <cleo@example.com>'
+check 'verified build: inverted block without the option (R5)' \
+	same_lines "$tmp/blocks-verified-off/skills/blocks/SKILL.md" 'wait'
+
+# verified_team ARGS: kira with the whole team, every member with a GitHub account.
+verified_team() {
+	kira_profile --assistant 'Kira <kira@example.com>' --assistant-github kira-bot \
+		--analyst-github iris-bot --coder 'Cleo <cleo@example.com>' --coder-github cleo-bot --copy "$@"
+}
+# verified_build DIR ARGS: build.sh with the profile of verified_team, without the option.
+verified_build() {
+	out=$1
+	shift
+	$shell "$root/scripts/build.sh" -o "$out" --name Alex --gender female --language auto \
+		--co-author 'Kira <kira@example.com>' --assistant 'Kira <kira@example.com>' \
+		--assistant-github kira-bot "$@" >/dev/null
+}
+
+claude=$tmp/verified
+verified_team >"$tmp/verified.log"
+check 'verified: off by default (R4)' profile_has 'start_verified_specs=no'
+check 'verified: never asked (R4)' sh -c '! grep -q "no terminal to ask for:.*verified" "$1"' _ "$tmp/verified.log"
+cp "$claude/settings.json" "$tmp/verified-off-settings.json"
+# R5: with the setting off, the installed files are the build without the option.
+verified_build "$tmp/verified-build" --analyst --analyst-github iris-bot \
+	--coder 'Cleo <cleo@example.com>' --coder-github cleo-bot
+for path in rules CLAUDE.md skills agents; do
+	check "verified: off, $path as the build without the option (R5)" \
+		diff -r "$tmp/verified-build/$path" "$claude/$path"
+done
+check 'verified: off, no review-spec skill (R5)' test ! -e "$claude/skills/review-spec"
+check 'verified: off, nothing verifies a specification (R5)' \
+	sh -c '! grep -rqF -e "review-spec" -e "Verifying spec" -e "Sent to Kira for verification" "$1"' _ "$claude"
+check 'verified: off, specifications wait in Specified for the user (R5)' \
+	contains "$claude/rules/team.md" 'says in one line that it is in Specified, ready for the user to start. Nothing is asked.'
+check 'verified: off, the analyst asks as today (R5)' \
+	contains "$claude/skills/spec/SKILL.md" 'Ready for you: move it to Ready when you want the team to start.'
+verified_team --start-verified-specs >/dev/null
+check 'verified: turned on and saved by the option (R4)' profile_has 'start_verified_specs=yes'
+check 'verified: on, review-spec installed (R4, R10)' test -f "$claude/skills/review-spec/SKILL.md"
+check 'verified: on, no permission rule added (R10)' cmp -s "$tmp/verified-off-settings.json" "$claude/settings.json"
+check 'verified: kept by a later run without the option (R4)' unchanged verified_team
+check 'verified: still on after the later run (R4)' profile_has 'start_verified_specs=yes'
+verified_team --no-start-verified-specs >/dev/null
+check 'verified: turned off by the no option (R4)' profile_has 'start_verified_specs=no'
+check 'verified: off again, review-spec removed (R5)' test ! -e "$claude/skills/review-spec"
+
+# R4: on without an analyst, or without a coder, the installed files are those of a build
+# without the option.
+claude=$tmp/verified-nocoder
+kira_profile --assistant 'Kira <kira@example.com>' --assistant-github kira-bot --analyst-github iris-bot \
+	--copy --start-verified-specs >/dev/null
+check 'verified: on without a coder, saved (R4)' profile_has 'start_verified_specs=yes'
+verified_build "$tmp/verified-nocoder-build" --analyst --analyst-github iris-bot
+for path in rules CLAUDE.md skills agents; do
+	check "verified: on without a coder, $path as the build without the option (R4)" \
+		diff -r "$tmp/verified-nocoder-build/$path" "$claude/$path"
+done
+verified_build "$tmp/verified-noanalyst-on" --coder 'Cleo <cleo@example.com>' --start-verified-specs
+verified_build "$tmp/verified-noanalyst-off" --coder 'Cleo <cleo@example.com>'
+check 'verified: on without an analyst, the build without the option (R4)' \
+	diff -r "$tmp/verified-noanalyst-off" "$tmp/verified-noanalyst-on"
+verified_build "$tmp/verified-nocoder-on" --analyst --start-verified-specs
+verified_build "$tmp/verified-nocoder-off" --analyst
+check 'verified: on without a coder, the build without the option (R4)' \
+	diff -r "$tmp/verified-nocoder-off" "$tmp/verified-nocoder-on"
+
+# A profile saved before the setting reads as off, and nothing is asked.
+claude=$tmp/verified-earlier
+mkdir -p "$claude"
+printf 'name=Alex\ngender=female\nlanguage=auto\nassistant_name=Kira\nassistant_email=kira@example.com\nassistant_signing_key=\nassistant_github=\nco_author_trailer=yes\nanalyst=yes\nanalyst_github=\ncoder=Cleo <cleo@example.com>\ncoder_signing_key=\ncoder_github=\nallow_releases=no\ncomplete_approved_prs=no\nstyle=kira-cozy\n' \
+	>"$claude/.kirakit-profile"
+kira --copy >"$tmp/verified-earlier.log"
+check 'verified: earlier profile reads as off (R4)' profile_has 'start_verified_specs=no'
+check 'verified: earlier profile not asked (R4)' sh -c '! grep -q "no terminal to ask for" "$1"' _ "$tmp/verified-earlier.log"
+
+# R6 to R17: the rules with the setting on.
+verified_build "$tmp/verified-on" --analyst --analyst-github iris-bot \
+	--coder 'Cleo <cleo@example.com>' --coder-github cleo-bot --start-verified-specs
+$shell "$root/scripts/build.sh" -o "$tmp/verified-on-noaccount" --assistant 'Kira <kira@example.com>' \
+	--analyst --coder 'Cleo <cleo@example.com>' --start-verified-specs >/dev/null
+check 'verified: on, no placeholder left (R4)' no_placeholder "$tmp/verified-on"
+on_spec=$tmp/verified-on/skills/spec/SKILL.md
+on_team=$tmp/verified-on/rules/team.md
+on_next=$tmp/verified-on/skills/next-task/SKILL.md
+on_claude=$tmp/verified-on/CLAUDE.md
+on_review=$tmp/verified-on/skills/review-spec/SKILL.md
+on_kira=$tmp/verified-on/agents/kira.md
+check 'verified: on, the analyst settles what is not security (R6)' \
+	flat_has "$on_spec" '**Settle it** when it is not a security question: take the logical option'
+check 'verified: on, hard-to-reverse choices and scope settled (R6)' \
+	flat_has "$on_spec" 'Hard-to-reverse choices (public interface, data format, file layout users depend on) and scope are settled too. Record each choice and its reason under Decisions.'
+check 'verified: on, the narrower scope, the extension as a follow-up (R6)' \
+	flat_has "$on_spec" 'For scope beyond the idea, take the narrower option, and record the extension under Open questions as a possible follow-up.'
+check 'verified: on, the analyst no longer asks hard-to-reverse choices (R6)' \
+	sh -c '! grep -qF "when the choice is hard to reverse (public interface, data, accounts," "$1"' _ "$on_spec"
+# security_listed FILE: whether FILE lists every kind of security question of R7.
+security_listed() {
+	flat_has "$1" 'credentials, tokens or signing keys' 'permission rules or `allowed-tools`' \
+		'Git identity or signing' 'network downloads or remote scripts that are executed' \
+		'files written or deleted outside the project' 'CI workflows' \
+		'accounts and their access rights' "data exposed outside the user's machine or to other people"
+}
+check 'verified: on, the analyst asks every security question (R7)' \
+	flat_has "$on_spec" '**Ask the user** every security question, and only those.'
+check 'verified: on, the security list in the spec skill (R7)' security_listed "$on_spec"
+check 'verified: on, never settled by the analyst (R7)' \
+	flat_has "$on_spec" 'Never settle a security question yourself, even with a clear recommendation'
+check 'verified: on, summary lists the decisions taken without the user (R8)' \
+	flat_has "$on_spec" 'the decisions taken without the user (number and one line each), the hard-to-reverse ones first (public interface, data format, file layout users depend on, scope)'
+check 'verified: on, summary without mention, sent to the lead (R8)' \
+	flat_has "$on_spec" 'post it without mentioning the user and ask nothing: the specification goes to the lead' 'End with "Sent to Kira for verification."'
+check 'verified: on, no Ready for you (R8)' sh -c '! grep -qF "Ready for you" "$1"' _ "$on_spec"
+check 'verified: on, the analyst changes it on the lead'"'"'s comments (R14)' \
+	flat_has "$on_spec" 'When the lead hands back a verification'"'"'s comments, address each one'
+check 'verified: on, the lead starts the kira agent in the background (R9)' \
+	flat_has "$on_team" 'verifies it with the `kira` agent, run in the background: the Agent tool with `subagent_type: kira`'
+check 'verified: on, Verifying spec #<n> (R9)' \
+	flat_has "$on_team" 'a `description` that starts with `Verifying` and names the specification (`Verifying spec #<n>`), no `model`'
+check 'verified: on, the lead keeps answering (R9)' \
+	flat_has "$on_team" 'says in one line that the verification started and keeps answering the user.'
+check 'verified: on, no verification while a question waits (D16)' \
+	flat_has "$on_team" 'A specification that still holds a question for the user is not verified'
+check 'verified: on, the security list in the lead'"'"'s rules (R11)' \
+	flat_has "$on_team" 'credentials, tokens or signing keys; permission rules or `allowed-tools`; Git identity or signing;' \
+	'accounts and their access rights; or data exposed outside the user'"'"'s machine or to other people.'
+check 'verified: on, a flagged question goes to the user (R11)' \
+	flat_has "$on_team" 'always goes to the user, and neither one settles a question the other flagged.'
+check 'verified: on, the verdict posted as her account (R12)' \
+	flat_has "$on_team" 'posts its verdict on the specification as its own account (`gh issue comment <n> --body-file <file>`), in its own voice'
+check 'verified: on, the verdict named first (R12)' \
+	flat_has "$on_team" '`Verification: verified`, `Verification: changes requested` or `Verification: needs the user`'
+check 'verified: on, one line, no mention (R12)' \
+	flat_has "$on_team" 'It says the verdict in one line in the conversation. The verdict comment does not mention the user.'
+check 'verified: on, verified moves to Ready (R13)' \
+	flat_has "$on_team" '`verified`: the assistant moves the specification to Ready with the `board-status` skill (`board-status <n> Ready --as kira-bot`)'
+check 'verified: on, status:ready without a board (R13)' contains "$on_team" '(`gh issue edit <n> --add-label status:ready`), then runs `next-task` and hands the task'
+check 'verified: on, CLAUDE.md lets the lead move it to Ready (R13)' \
+	flat_has "$on_claude" 'or the lead moves it there after verifying it (`rules/team.md`)'
+check 'verified: on, changes back to the analyst (R14)' \
+	flat_has "$on_team" '`changes requested`: the assistant hands the specification back to the analyst with the result'"'"'s comments; once she has changed it, it verifies it again.'
+check 'verified: on, the second round goes to the user (R14)' \
+	flat_has "$on_team" 'also says `changes requested`, the assistant asks the user instead' 'lists the comments still unresolved'
+check 'verified: on, needs the user (R15)' \
+	flat_has "$on_team" '`needs the user`: the assistant asks the user the result'"'"'s "For the user" questions in a comment of its own'
+check 'verified: on, the count starts over (R15)' \
+	flat_has "$on_team" 'has recorded his answers, the assistant verifies it again, and the count of verdicts requesting changes starts over.'
+check 'verified: on, next-task pauses on a comment of the user (R16)' \
+	flat_has "$on_next" 'Then skip a specification that waits for a comment of the user' 'with no comment of a team member after it'
+check 'verified: on, next-task reads the user'"'"'s login (R16)' \
+	sh -c 'grep "^allowed-tools: " "$1" | grep -qF "Bash(gh config get user -h github.com)"' _ "$on_next"
+check 'verified: on, next-task tells the user'"'"'s comments by the marker (R16)' \
+	flat_has "$on_next" 'or a comment of a team account without a session marker posted after the latest comment that carries one'
+check 'verified: on, next-task says it in its answer (R16)' \
+	contains "$on_next" 'paused by a comment of the user'
+check 'verified: on, no pause without team accounts (R16)' \
+	flat_has "$tmp/verified-on-noaccount/skills/next-task/SKILL.md" 'their comments cannot be told from his. No specification is skipped this way.'
+check 'verified: on, the lead hands the comment to the analyst (R16)' \
+	flat_has "$on_team" 'paused by a comment of the user, the assistant hands that comment to the analyst'
+check 'verified: on, CLAUDE.md starts no task of a paused specification (R16)' \
+	flat_has "$on_claude" 'While the user'"'"'s latest comment on a specification in Ready or In progress has no comment of a team member after it, start no further task of it either'
+check 'verified: on, the user still stops a specification (R17)' \
+	flat_has "$on_claude" 'When the user moves a specification out of Ready and In progress, start no further task'
+check 'verified: on, pull requests, tags and releases keep their rules (R17)' \
+	flat_has "$on_team" 'The pull requests of a verified specification, its tags and its releases keep their own rules.'
+check 'verified: on, the pull request rules unchanged (R17)' \
+	sh -c 'awk "/^## Delegating to the coder/,0" "$1" >"$3" && awk "/^## Delegating to the coder/,0" "$2" | cmp -s - "$3"' \
+	_ "$on_team" "$tmp/verified-build/rules/team.md" "$tmp/verified-coder-part"
+
+# R10: the read-only review-spec skill, on Opus, preloaded by the kira agent.
+check 'review-spec: built with the setting on (R10)' test -f "$on_review"
+check 'review-spec: front matter on the first line (R10)' test "$(head -n 1 "$on_review")" = ---
+check 'review-spec: runs forked on Opus (R10)' sh -c 'grep -qx "model: opus" "$1" && grep -qx "context: fork" "$1"' _ "$on_review"
+check 'review-spec: in the README, forked on Opus (R10, R18)' in_readme review-spec forked
+check 'review-spec: no write in allowed-tools (R10)' \
+	sh -c 'tools=$(grep "^allowed-tools: " "$1") && test "$tools" = "allowed-tools: Bash(gh issue view:*)"' _ "$on_review"
+check 'review-spec: only reads (R10)' flat_has "$on_review" 'This skill only reads. It posts no comment, edits no issue, adds no label'
+check 'review-spec: every gh api call a GET (R10)' contains "$on_review" 'Every `gh api` call is a GET'
+check 'review-spec: three verdicts (R10)' contains "$on_review" 'Verdict: verified | changes requested | needs the user'
+check 'review-spec: single testable statements (R10)' flat_has "$on_review" 'Each requirement is a single testable statement of observable behavior'
+check 'review-spec: every requirement covered (R10)' flat_has "$on_review" 'is listed on the `Covers:` line of at least one task'
+check 'review-spec: the splitting rules (R10)' flat_has "$on_review" 'The tasks follow the splitting rules of the `spec` skill'
+check 'review-spec: decisions state their reason (R10)' flat_has "$on_review" 'Every decision states its question, its choice and its reason.'
+check 'review-spec: consistent with the code (R10)' flat_has "$on_review" 'The specification is consistent with the code and files it names'
+check 'review-spec: no security question settled without the user (R10)' \
+	flat_has "$on_review" 'No decision taken without the user settles a security question'
+check 'review-spec: the security list (R10, R11)' security_listed "$on_review"
+check 'review-spec: needs the user on a security question (R11)' \
+	flat_has "$on_review" '`needs the user` when a decision taken without the user settles a security question, or when the specification leaves a security question open'
+check 'review-spec: a flagged question goes to the user (R11)' \
+	flat_has "$on_review" 'a question either of them flags as a security question always goes to the user.'
+check 'review-spec: reads as the lead'"'"'s account (R10)' contains "$on_review" '`GH_TOKEN=$(gh auth token --user kira-bot)`'
+check 'kira agent: preloads review-spec with the setting (R10)' test "$(front "$on_kira" skills)" = 'review-pr, review-spec'
+check 'kira agent: review-pr alone without the setting (R5)' test "$(front "$tmp/verified-build/agents/kira.md" skills)" = review-pr
+check 'kira agent: still on Opus with the setting (R10)' test "$(front "$on_kira" model)" = opus
+check 'kira agent: still no writing tool with the setting (R10)' test "$(front "$on_kira" tools)" = 'Bash, Read'
+check 'kira agent: verifies a specification from its issue URL (R9, R10)' \
+	flat_has "$on_kira" 'A specification'"'"'s reference is its issue URL (`https://github.com/OWNER/REPO/issues/N`): follow the `review-spec` procedure'
+check 'kira agent: description covers verifying (R9)' contains "$on_kira" 'or verify a specification of the analyst in the background'
+
+# R18: the README documents the option, the verification and how to object.
+check 'verified: README lists the option (R18)' contains "$root/README.md" '| `--start-verified-specs` |'
+check 'verified: README lists the no option (R18)' contains "$root/README.md" '| `--no-start-verified-specs` |'
+check 'verified: README lists the profile key and default (R18)' \
+	flat_has "$root/README.md" '`start_verified_specs` (`yes` or `no`, default `no`)'
+check 'verified: README describes the verdicts (R18)' \
+	flat_has "$root/README.md" '`verified`: Kira moves the specification to Ready' '`changes requested`: back to Iris' '`needs the user`: a security question'
+check 'verified: README lists the security questions (R18)' \
+	flat_has "$root/README.md" 'A security question is an open choice about credentials, tokens or signing keys; permission rules or `allowed-tools`; Git identity or signing; network downloads or remote scripts that are executed; files written or deleted outside the project; CI workflows; accounts and their access rights; or data exposed outside your machine or to other people.'
+check 'verified: README says how to object (R18)' \
+	flat_has "$root/README.md" '**You object on the issue, or on the board.**' 'Comment on a specification in Ready or In progress to object'
+
 # --- dry run -------------------------------------------------------------------------------
 
 claude=$tmp/dry
@@ -2108,6 +2333,8 @@ check 'coder rules: rerun changes nothing (R25)' unchanged kira --copy
 claude=$tmp/coder-rules-team
 kira_team --coder 'Cleo <cleo@example.com>' --coder-github cleo-bot --copy >/dev/null
 check "coder rules: the lead's pr edit with a coder (R27)" contains "$claude/settings.json" "$lead_edit_rule"
+# Nor with a coder's account (#183 R6).
+check 'coder rules: no read rule for the review, with a coder account (#183 R6)' sh -c '! grep -q -e "gh pr view" -e "gh pr diff" -e "gh api" "$1"' _ "$claude/settings.json"
 check 'coder rules: the shared push rules once (R25)' test "$(occurrences '"Bash(git push origin feat/:*)"')" = 1
 check 'coder rules: the lead still pushes main (R25)' test "$(occurrences "$main_rule")" = 1
 check 'coder rules: the lead keeps the broad delete rule (R25)' test "$(occurrences '"Bash(git push origin --delete:*)"')" = 1
